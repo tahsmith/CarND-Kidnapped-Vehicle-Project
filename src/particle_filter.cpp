@@ -14,6 +14,7 @@
 #include <sstream>
 #include <string>
 #include <iterator>
+#include <cassert>
 
 #include "particle_filter.h"
 
@@ -24,7 +25,28 @@ void ParticleFilter::init(double x, double y, double theta, double std[]) {
 	//   x, y, theta and their uncertainties from GPS) and all weights to 1. 
 	// Add random Gaussian noise to each particle.
 	// NOTE: Consult particle_filter.h for more information about this method (and others in this file).
+    double std_x = 2;
+    double std_y = 2;
+    double std_theta = 0.05;
+    std::default_random_engine gen;
+    using normal_dist = std::normal_distribution<double>;
+    normal_dist x_dist(x, std_x);
+    normal_dist y_dist(y, std_y);
+    normal_dist theta_dist(theta, std_theta);
 
+    particles.reserve(num_particles);
+    for(size_t i = 0; i < num_particles; ++i)
+    {
+        particles.emplace_back();
+        auto& particle = particles.back();
+        particle.id = int(i);
+        particle.x = x_dist(gen);
+        particle.y = y_dist(gen);
+        particle.theta = theta_dist(gen);
+        particle.weight = 1.0;
+        weights[i] = 1.0;
+    }
+    assert(particles.size() == num_particles);
 }
 
 void ParticleFilter::prediction(double delta_t, double std_pos[], double velocity, double yaw_rate) {
@@ -64,8 +86,10 @@ void ParticleFilter::resample() {
 
 }
 
-Particle ParticleFilter::SetAssociations(Particle& particle, const std::vector<int>& associations, 
-                                     const std::vector<double>& sense_x, const std::vector<double>& sense_y)
+void ParticleFilter::SetAssociations(Particle& particle,
+                                     const std::vector<int>& associations,
+                                     const std::vector<double>& sense_x,
+                                     const std::vector<double>& sense_y)
 {
     //particle: the particle to assign each listed association, and association's (x,y) world coordinates mapping to
     // associations: The landmark id that goes along with each listed association
