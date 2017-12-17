@@ -19,9 +19,9 @@ void ParticleFilter::init(double x, double y, double theta, double std[]) {
 	//   x, y, theta and their uncertainties from GPS) and all weights to 1. 
 	// Add random Gaussian noise to each particle.
 	// NOTE: Consult particle_filter.h for more information about this method (and others in this file).
-    double std_x = 2;
-    double std_y = 2;
-    double std_theta = 0.05;
+    double std_x = std[0];
+    double std_y = std[1];
+    double std_theta = std[2];
     std::default_random_engine gen;
     using normal_dist = std::normal_distribution<double>;
     normal_dist x_dist(x, std_x);
@@ -49,6 +49,10 @@ void ParticleFilter::prediction(double delta_t, double std_pos[], double velocit
 	// NOTE: When adding noise you may find std::normal_distribution and std::default_random_engine useful.
 	//  http://en.cppreference.com/w/cpp/numeric/random/normal_distribution
 	//  http://www.cplusplus.com/reference/random/default_random_engine/
+    std::default_random_engine gen;
+    using normal_dist = std::normal_distribution<double>;
+    normal_dist x_noise(0, std_pos[0]);
+    normal_dist y_noise(0, std_pos[1]);
     if (fabs(velocity) > 0.001)
     {
         double c = velocity / yaw_rate;
@@ -72,6 +76,13 @@ void ParticleFilter::prediction(double delta_t, double std_pos[], double velocit
         }
     }
 
+    for (auto& particle : particles)
+    {
+        double theta = particle.theta;
+        particle.x += x_noise(gen);
+        particle.y += y_noise(gen);
+    }
+
 }
 
 void ParticleFilter::dataAssociation(std::vector<LandmarkObs> predicted, std::vector<LandmarkObs>& observations) {
@@ -85,11 +96,11 @@ void ParticleFilter::dataAssociation(std::vector<LandmarkObs> predicted, std::ve
         double best_distance = std::numeric_limits<double>::infinity();
         size_t best_match_i = 0;
 
-        for (size_t predicted_i = 0;
-             predicted_i < predicted.size(); ++predicted_i)
+        for (size_t landmark_i = 0;
+             landmark_i < predicted.size(); ++landmark_i)
         {
             double distance = dist(
-                predicted[predicted_i].x, predicted[predicted_i].y,
+                predicted[landmark_i].x, predicted[landmark_i].y,
                 observations[observation_i].x, observations[observation_i].y
             );
 
@@ -104,25 +115,27 @@ void ParticleFilter::dataAssociation(std::vector<LandmarkObs> predicted, std::ve
 
 }
 
-LandmarkObs transformGlobalToLocal(const Map::single_landmark_s& globalLandmark, const Particle& particle)
+LandmarkObs transformLocalToGlobal(const LandmarkObs& observation,
+                                   const Particle& particle)
 {
-    double x = globalLandmark.x_f;
-    double y = globalLandmark.y_f;
+    double x = observation.x;
+    double y = observation.y;
     double sin_theta = sin(particle.theta);
     double cos_theta = cos(particle.theta);
     return {
-        globalLandmark.id_i,
+        observation.id,
         particle.x + x * cos_theta - y * sin_theta,
         particle.y + x * sin_theta + y * cos_theta,
     };
 }
 
-std::vector<LandmarkObs> predictParticleObservations(const Map& mapLandmarks, const Particle& particle)
+std::vector<LandmarkObs> predictParticleObservations(const std::vector<LandmarkObs>& observations, const Particle& particle)
 {
     std::vector<LandmarkObs> particleObservations;
-    particleObservations.reserve(mapLandmarks.landmark_list.size());
-    for (auto&& landmark : mapLandmarks.landmark_list) {
-        particleObservations.push_back(transformGlobalToLocal(landmark, particle));
+    particleObservations.reserve(observations.size());
+    for (auto&& landmark : observations) {
+        particleObservations.push_back(
+            transformLocalToGlobal(landmark, particle));
     }
     return particleObservations;
 }
@@ -181,14 +194,26 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
 	//   3.33
 	//   http://planning.cs.uiuc.edu/node99.html
 
-    auto mutable_observations = observations;
+    std::vector<LandmarkObs> predicted_landmarks;
+    predicted_landmarks.reserve(map_landmarks.landmark_list.size());
+    for (auto&& landmark : map_landmarks.landmark_list)
+    {
+        predicted_landmarks.push_back({
+                                          landmark.id_i,
+                                          landmark.x_f,
+                                          landmark.y_f
+                                      });
+    }
 
     for (auto& particle : particles)
     {
-        auto predicted_landmarks = predictParticleObservations(map_landmarks, particle);
-        dataAssociation(predicted_landmarks, mutable_observations);
-        predicted_landmarks = filterPredictedLandmarks(mutable_observations, predicted_landmarks);
-        particle.weight = particleWeight(particle, predicted_landmarks, mutable_observations, std_landmark);
+        auto particle_observations = predictParticleObservations(observations, particle);
+        dataAssociation(predicted_landmarks, particle_observations);
+        particle.weight = particleWeight(
+            particle,
+            filterPredictedLandmarks(particle_observations, predicted_landmarks),
+            particle_observations,
+            std_landmark);
     }
     for (size_t i = 0; i < particles.size(); ++i) {
         weights[i] = particles[i].weight;
@@ -200,7 +225,8 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
         for (size_t i = 0; i < particles.size(); ++i) {
             weights[i] = weights[i] / total_weight;
         }
-    } else
+    }
+    else
     {
         for (size_t i = 0; i < particles.size(); ++i) {
             weights[i] = 1 / particles.size();
