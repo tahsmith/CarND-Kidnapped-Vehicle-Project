@@ -53,6 +53,7 @@ void ParticleFilter::prediction(double delta_t, double std_pos[], double velocit
     using normal_dist = std::normal_distribution<double>;
     normal_dist x_noise(0, std_pos[0]);
     normal_dist y_noise(0, std_pos[1]);
+    normal_dist yaw_noise(0, std_pos[2]);
     if (fabs(velocity) > 0.001)
     {
         double c = velocity / yaw_rate;
@@ -67,20 +68,21 @@ void ParticleFilter::prediction(double delta_t, double std_pos[], double velocit
     }
     else
     {
+        double r = velocity * delta_t;
         for (auto& particle : particles)
         {
             double theta = particle.theta;
-            particle.x += cos(theta);
-            particle.y += sin(theta);
+            particle.x += r * cos(theta);
+            particle.y += r * sin(theta);
             particle.theta = theta;
         }
     }
 
     for (auto& particle : particles)
     {
-        double theta = particle.theta;
         particle.x += x_noise(gen);
         particle.y += y_noise(gen);
+        particle.theta += yaw_noise(gen);
     }
 
 }
@@ -107,7 +109,7 @@ void ParticleFilter::dataAssociation(std::vector<LandmarkObs> predicted, std::ve
             if (distance < best_distance)
             {
                 best_distance = distance;
-                best_match_i = observation_i;
+                best_match_i = landmark_i;
             }
         }
         observations[observation_i].id = predicted[best_match_i].id;
@@ -159,7 +161,8 @@ std::vector<LandmarkObs> filterPredictedLandmarks(
     return filtered;
 }
 
-double observationWeight(const LandmarkObs& predicted, const LandmarkObs& observed, double stdLandmark[2]) {
+double observationWeight(const LandmarkObs& predicted, const LandmarkObs& observed,
+                         const double stdLandmark[2]) {
     double err_x = predicted.x - observed.x;
     double err_y = predicted.y - observed.y;
     return 1 / (2 * M_PI * stdLandmark[0] * stdLandmark[1])
