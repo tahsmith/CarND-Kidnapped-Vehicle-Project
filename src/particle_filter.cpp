@@ -106,10 +106,14 @@ void ParticleFilter::dataAssociation(std::vector<LandmarkObs> predicted, std::ve
 
 LandmarkObs transformGlobalToLocal(const Map::single_landmark_s& globalLandmark, const Particle& particle)
 {
+    double x = globalLandmark.x_f;
+    double y = globalLandmark.y_f;
+    double sin_theta = sin(particle.theta);
+    double cos_theta = cos(particle.theta);
     return {
         globalLandmark.id_i,
-        0.0,
-        0.0
+        particle.x + x * cos_theta - y * sin_theta,
+        particle.y + x * sin_theta + y * cos_theta,
     };
 }
 
