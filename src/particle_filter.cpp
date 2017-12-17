@@ -54,7 +54,7 @@ void ParticleFilter::prediction(double delta_t, double std_pos[], double velocit
     normal_dist x_noise(0, std_pos[0]);
     normal_dist y_noise(0, std_pos[1]);
     normal_dist yaw_noise(0, std_pos[2]);
-    if (fabs(velocity) > 0.001)
+    if (fabs(yaw_rate) > 0.001)
     {
         double c = velocity / yaw_rate;
         for (auto& particle : particles)
@@ -161,41 +161,32 @@ std::vector<LandmarkObs> filterPredictedLandmarks(
     return filtered;
 }
 
-double observationWeight(const LandmarkObs& predicted, const LandmarkObs& observed,
+double logObservationWeight(const LandmarkObs& predicted, const LandmarkObs& observed,
                          const double stdLandmark[2]) {
     double err_x = predicted.x - observed.x;
     double err_y = predicted.y - observed.y;
-    return 1 / (2 * M_PI * stdLandmark[0] * stdLandmark[1])
-        * exp(-(err_x * err_x / stdLandmark[0] / stdLandmark[0]
+    return -(err_x * err_x / stdLandmark[0] / stdLandmark[0]
                 + err_y * err_y / stdLandmark[1] / stdLandmark[1])
-              / 2);
+           / 2;
 }
 
 double particleWeight(const Particle& particle, const std::vector<LandmarkObs>& observedLandmarks, const std::vector<LandmarkObs>& predictedLandmarks,  double stdLandmark[2])
 {
-    double totalWeight = 1;
+    double totalLogWeight = 1;
     assert(observedLandmarks.size() == predictedLandmarks.size());
     for(size_t i = 0; i < observedLandmarks.size(); ++i)
     {
         assert(predictedLandmarks[i].id == observedLandmarks[i].id);
-        double weight = observationWeight(predictedLandmarks[i], observedLandmarks[i], stdLandmark);
-        totalWeight = weight * totalWeight;
+        double logWeight = logObservationWeight(predictedLandmarks[i], observedLandmarks[i], stdLandmark);
+        totalLogWeight = logWeight + totalLogWeight;
     }
-    return totalWeight;
+    double normalisation = pow(1 / (2 * M_PI * stdLandmark[0] * stdLandmark[1]),
+                               observedLandmarks.size());
+    return normalisation * exp(totalLogWeight);
 }
 
 void ParticleFilter::updateWeights(double sensor_range, double std_landmark[], 
 		const std::vector<LandmarkObs> &observations, const Map &map_landmarks) {
-	// TODO: Update the weights of each particle using a mult-variate Gaussian distribution. You can read
-	//   more about this distribution here: https://en.wikipedia.org/wiki/Multivariate_normal_distribution
-	// NOTE: The observations are given in the VEHICLE'S coordinate system. Your particles are located
-	//   according to the MAP'S coordinate system. You will need to transform between the two systems.
-	//   Keep in mind that this transformation requires both rotation AND translation (but no scaling).
-	//   The following is a good resource for the theory:
-	//   https://www.willamette.edu/~gorr/classes/GeneralGraphics/Transforms/transforms2d.htm
-	//   and the following is a good resource for the actual equation to implement (look at equation 
-	//   3.33
-	//   http://planning.cs.uiuc.edu/node99.html
 
     std::vector<LandmarkObs> predicted_landmarks;
     predicted_landmarks.reserve(map_landmarks.landmark_list.size());
@@ -208,20 +199,17 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
                                       });
     }
 
-    for (auto& particle : particles)
+    for (size_t i = 0; i < particles.size(); ++i)
     {
+        const auto& particle = particles[i];
         auto particle_observations = predictParticleObservations(observations, particle);
         dataAssociation(predicted_landmarks, particle_observations);
-        particle.weight = particleWeight(
+        weights[i] = particleWeight(
             particle,
             filterPredictedLandmarks(particle_observations, predicted_landmarks),
             particle_observations,
             std_landmark);
     }
-    for (size_t i = 0; i < particles.size(); ++i) {
-        weights[i] = particles[i].weight;
-    }
-
     double total_weight = accumulate(begin(weights), end(weights), 0.0);
     if (total_weight > 0.001)
     {
@@ -231,9 +219,14 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
     }
     else
     {
-        for (size_t i = 0; i < particles.size(); ++i) {
-            weights[i] = 1 / particles.size();
+        for (size_t i = 0; i < particles.size(); ++i)
+        {
+            weights[i] = 1.0 / particles.size();
         }
+    }
+
+    for (size_t i = 0; i < particles.size(); ++i) {
+        particles[i].weight = weights[i];
     }
 
 }
