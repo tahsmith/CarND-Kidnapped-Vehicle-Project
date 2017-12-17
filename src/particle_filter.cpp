@@ -149,20 +149,23 @@ std::vector<LandmarkObs> filterPredictedLandmarks(
 double observationWeight(const LandmarkObs& predicted, const LandmarkObs& observed, double stdLandmark[2]) {
     double err_x = predicted.x - observed.x;
     double err_y = predicted.y - observed.y;
-    return 1 / sqrt(2 * M_PI * stdLandmark[0] * stdLandmark[1])
-        * exp( err_x * err_x / stdLandmark[0] + err_y * err_y / stdLandmark[1]);
+    return 1 / (2 * M_PI * stdLandmark[0] * stdLandmark[1])
+        * exp(-(err_x * err_x / stdLandmark[0] / stdLandmark[0]
+                + err_y * err_y / stdLandmark[1] / stdLandmark[1])
+              / 2);
 }
 
 double particleWeight(const Particle& particle, const std::vector<LandmarkObs>& observedLandmarks, const std::vector<LandmarkObs>& predictedLandmarks,  double stdLandmark[2])
 {
-    double weight = 1;
+    double totalWeight = 1;
     assert(observedLandmarks.size() == predictedLandmarks.size());
     for(size_t i = 0; i < observedLandmarks.size(); ++i)
     {
         assert(predictedLandmarks[i].id == observedLandmarks[i].id);
-        weight = weight * observationWeight(predictedLandmarks[i], observedLandmarks[i], stdLandmark);
+        double weight = observationWeight(predictedLandmarks[i], observedLandmarks[i], stdLandmark);
+        totalWeight = weight * totalWeight;
     }
-    return weight;
+    return totalWeight;
 }
 
 void ParticleFilter::updateWeights(double sensor_range, double std_landmark[], 
@@ -187,13 +190,37 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
         predicted_landmarks = filterPredictedLandmarks(mutable_observations, predicted_landmarks);
         particle.weight = particleWeight(particle, predicted_landmarks, mutable_observations, std_landmark);
     }
+    for (size_t i = 0; i < particles.size(); ++i) {
+        weights[i] = particles[i].weight;
+    }
+
+    double total_weight = accumulate(begin(weights), end(weights), 0.0);
+    if (total_weight > 0.001)
+    {
+        for (size_t i = 0; i < particles.size(); ++i) {
+            weights[i] = weights[i] / total_weight;
+        }
+    } else
+    {
+        for (size_t i = 0; i < particles.size(); ++i) {
+            weights[i] = 1 / particles.size();
+        }
+    }
+
 }
 
 void ParticleFilter::resample() {
 	// TODO: Resample particles with replacement with probability proportional to their weight. 
 	// NOTE: You may find std::discrete_distribution helpful here.
 	//   http://en.cppreference.com/w/cpp/numeric/random/discrete_distribution
-
+    std::discrete_distribution<size_t> particle_dist(begin(weights), end(weights));
+    std::default_random_engine gen;
+    std::vector<Particle> new_particles;
+    new_particles.reserve(particles.size());
+    for(size_t i = 0; i < particles.size(); ++i) {
+        new_particles.push_back(particles[particle_dist(gen)]);
+    }
+    particles = move(new_particles);
 }
 
 void ParticleFilter::SetAssociations(Particle& particle,
