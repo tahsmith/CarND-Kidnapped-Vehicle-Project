@@ -6,15 +6,10 @@
  */
 
 #include <random>
-#include <algorithm>
-#include <iostream>
-#include <numeric>
-#include <cmath>
 #include <iostream>
 #include <sstream>
-#include <string>
-#include <iterator>
 #include <cassert>
+#include <limits>
 
 #include "particle_filter.h"
 
@@ -44,8 +39,9 @@ void ParticleFilter::init(double x, double y, double theta, double std[]) {
         particle.y = y_dist(gen);
         particle.theta = theta_dist(gen);
         particle.weight = 1.0;
-        weights[i] = 1.0;
+        weights.push_back(particle.weight);
     }
+    is_initialized = true;
     assert(particles.size() == num_particles);
 }
 
@@ -54,6 +50,28 @@ void ParticleFilter::prediction(double delta_t, double std_pos[], double velocit
 	// NOTE: When adding noise you may find std::normal_distribution and std::default_random_engine useful.
 	//  http://en.cppreference.com/w/cpp/numeric/random/normal_distribution
 	//  http://www.cplusplus.com/reference/random/default_random_engine/
+    if (fabs(velocity) > 0.001)
+    {
+        double c = velocity / yaw_rate;
+        for (auto& particle : particles)
+        {
+            double theta0 = particle.theta;
+            double theta1 = theta0 + delta_t * yaw_rate;
+            particle.x += c * (sin(theta1) - sin(theta0));
+            particle.y += c * (cos(theta0) - cos(theta1));
+            particle.theta = theta1;
+        }
+    }
+    else
+    {
+        for (auto& particle : particles)
+        {
+            double theta = particle.theta;
+            particle.x += cos(theta);
+            particle.y += sin(theta);
+            particle.theta = theta;
+        }
+    }
 
 }
 
@@ -62,6 +80,26 @@ void ParticleFilter::dataAssociation(std::vector<LandmarkObs> predicted, std::ve
 	//   observed measurement to this particular landmark.
 	// NOTE: this method will NOT be called by the grading code. But you will probably find it useful to 
 	//   implement this method and use it as a helper during the updateWeights phase.
+    for (size_t predicted_i = 0; predicted_i < predicted.size(); ++predicted_i)
+    {
+        double best_distance = std::numeric_limits<double>::infinity();
+        size_t best_match_i = 0;
+        for (size_t observation_i = 0; observation_i < observations.size(); ++observation_i)
+        {
+
+            double distance = dist(
+                predicted[predicted_i].x, predicted[predicted_i].y,
+                observations[observation_i].x, observations[observation_i].y
+            );
+
+            if (distance < best_distance)
+            {
+                best_distance = distance;
+                best_match_i = observation_i;
+            }
+        }
+        predicted[predicted_i].id = int(best_match_i);
+    }
 
 }
 
