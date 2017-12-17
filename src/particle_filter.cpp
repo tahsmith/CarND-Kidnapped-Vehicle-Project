@@ -9,7 +9,6 @@
 #include <iostream>
 #include <sstream>
 #include <cassert>
-#include <limits>
 
 #include "particle_filter.h"
 
@@ -80,13 +79,15 @@ void ParticleFilter::dataAssociation(std::vector<LandmarkObs> predicted, std::ve
 	//   observed measurement to this particular landmark.
 	// NOTE: this method will NOT be called by the grading code. But you will probably find it useful to 
 	//   implement this method and use it as a helper during the updateWeights phase.
-    for (size_t predicted_i = 0; predicted_i < predicted.size(); ++predicted_i)
+    for (size_t observation_i = 0;
+         observation_i < observations.size(); ++observation_i)
     {
         double best_distance = std::numeric_limits<double>::infinity();
         size_t best_match_i = 0;
-        for (size_t observation_i = 0; observation_i < observations.size(); ++observation_i)
-        {
 
+        for (size_t predicted_i = 0;
+             predicted_i < predicted.size(); ++predicted_i)
+        {
             double distance = dist(
                 predicted[predicted_i].x, predicted[predicted_i].y,
                 observations[observation_i].x, observations[observation_i].y
@@ -98,9 +99,66 @@ void ParticleFilter::dataAssociation(std::vector<LandmarkObs> predicted, std::ve
                 best_match_i = observation_i;
             }
         }
-        predicted[predicted_i].id = int(best_match_i);
+        observations[observation_i].id = predicted[best_match_i].id;
     }
 
+}
+
+LandmarkObs transformGlobalToLocal(const Map::single_landmark_s& globalLandmark, const Particle& particle)
+{
+    return {
+        globalLandmark.id_i,
+        0.0,
+        0.0
+    };
+}
+
+std::vector<LandmarkObs> predictParticleObservations(const Map& mapLandmarks, const Particle& particle)
+{
+    std::vector<LandmarkObs> particleObservations;
+    particleObservations.reserve(mapLandmarks.landmark_list.size());
+    for (auto&& landmark : mapLandmarks.landmark_list) {
+        particleObservations.push_back(transformGlobalToLocal(landmark, particle));
+    }
+    return particleObservations;
+}
+
+std::vector<LandmarkObs> filterPredictedLandmarks(
+    const std::vector<LandmarkObs>& observedLandmarks,
+    const std::vector<LandmarkObs>& predictedLandmarks)
+{
+    std::vector<LandmarkObs> filtered;
+    filtered.reserve(observedLandmarks.size());
+    for (auto&& observed : observedLandmarks) {
+        for (auto&& predicted: predictedLandmarks) {
+            if (predicted.id == observed.id)
+            {
+                filtered.push_back(predicted);
+                break;
+            }
+        }
+    }
+    assert(filtered.size() == observedLandmarks.size());
+    return filtered;
+}
+
+double observationWeight(const LandmarkObs& predicted, const LandmarkObs& observed, double stdLandmark[2]) {
+    double err_x = predicted.x - observed.x;
+    double err_y = predicted.y - observed.y;
+    return 1 / sqrt(2 * M_PI * stdLandmark[0] * stdLandmark[1])
+        * exp( err_x * err_x / stdLandmark[0] + err_y * err_y / stdLandmark[1]);
+}
+
+double particleWeight(const Particle& particle, const std::vector<LandmarkObs>& observedLandmarks, const std::vector<LandmarkObs>& predictedLandmarks,  double stdLandmark[2])
+{
+    double weight = 1;
+    assert(observedLandmarks.size() == predictedLandmarks.size());
+    for(size_t i = 0; i < observedLandmarks.size(); ++i)
+    {
+        assert(predictedLandmarks[i].id == observedLandmarks[i].id);
+        weight = weight * observationWeight(predictedLandmarks[i], observedLandmarks[i], stdLandmark);
+    }
+    return weight;
 }
 
 void ParticleFilter::updateWeights(double sensor_range, double std_landmark[], 
@@ -115,6 +173,16 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
 	//   and the following is a good resource for the actual equation to implement (look at equation 
 	//   3.33
 	//   http://planning.cs.uiuc.edu/node99.html
+
+    auto mutable_observations = observations;
+
+    for (auto& particle : particles)
+    {
+        auto predicted_landmarks = predictParticleObservations(map_landmarks, particle);
+        dataAssociation(predicted_landmarks, mutable_observations);
+        predicted_landmarks = filterPredictedLandmarks(mutable_observations, predicted_landmarks);
+        particle.weight = particleWeight(particle, predicted_landmarks, mutable_observations, std_landmark);
+    }
 }
 
 void ParticleFilter::resample() {
