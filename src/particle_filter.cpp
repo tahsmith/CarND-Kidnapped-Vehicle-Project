@@ -15,10 +15,6 @@
 using namespace std;
 
 void ParticleFilter::init(double x, double y, double theta, double std[]) {
-	// TODO: Set the number of particles. Initialize all particles to first position (based on estimates of 
-	//   x, y, theta and their uncertainties from GPS) and all weights to 1. 
-	// Add random Gaussian noise to each particle.
-	// NOTE: Consult particle_filter.h for more information about this method (and others in this file).
     double std_x = std[0];
     double std_y = std[1];
     double std_theta = std[2];
@@ -45,10 +41,6 @@ void ParticleFilter::init(double x, double y, double theta, double std[]) {
 }
 
 void ParticleFilter::prediction(double delta_t, double std_pos[], double velocity, double yaw_rate) {
-	// TODO: Add measurements to each particle and add random Gaussian noise.
-	// NOTE: When adding noise you may find std::normal_distribution and std::default_random_engine useful.
-	//  http://en.cppreference.com/w/cpp/numeric/random/normal_distribution
-	//  http://www.cplusplus.com/reference/random/default_random_engine/
     std::default_random_engine gen;
     using normal_dist = std::normal_distribution<double>;
     normal_dist x_noise(0, std_pos[0]);
@@ -88,10 +80,6 @@ void ParticleFilter::prediction(double delta_t, double std_pos[], double velocit
 }
 
 void ParticleFilter::dataAssociation(std::vector<LandmarkObs> predicted, std::vector<LandmarkObs>& observations) {
-	// TODO: Find the predicted measurement that is closest to each observed measurement and assign the 
-	//   observed measurement to this particular landmark.
-	// NOTE: this method will NOT be called by the grading code. But you will probably find it useful to 
-	//   implement this method and use it as a helper during the updateWeights phase.
     for (size_t observation_i = 0;
          observation_i < observations.size(); ++observation_i)
     {
@@ -146,6 +134,9 @@ std::vector<LandmarkObs> filterPredictedLandmarks(
     const std::vector<LandmarkObs>& observedLandmarks,
     const std::vector<LandmarkObs>& predictedLandmarks)
 {
+    // Select only map landmarks that correspond to observed ones. Not super
+    // efficient, but makes the weight calculation much simpler to have them
+    // lined up.
     std::vector<LandmarkObs> filtered;
     filtered.reserve(observedLandmarks.size());
     for (auto&& observed : observedLandmarks) {
@@ -172,7 +163,13 @@ double logObservationWeight(const LandmarkObs& predicted, const LandmarkObs& obs
 
 double particleWeight(const Particle& particle, const std::vector<LandmarkObs>& observedLandmarks, const std::vector<LandmarkObs>& predictedLandmarks,  double stdLandmark[2])
 {
-    double totalLogWeight = 1;
+    // Calculate the weight of a particle given some observations, and some
+    // predicted landmarks based on the particles state.
+    // Use the log of the joint distribution here. Having a product of small
+    // numbers causes issues when there are many particles.
+    // Also it is significantly more efficient, since only a single exp call is
+    // needed per particle.
+    double totalLogWeight = 0.0;
     assert(observedLandmarks.size() == predictedLandmarks.size());
     for(size_t i = 0; i < observedLandmarks.size(); ++i)
     {
@@ -219,6 +216,10 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
     }
     else
     {
+        // If all of the sampled particles were too far off the mark to generate
+        // a consistent distribution, assume that any particle was equally
+        // likely. We must ensure that the weights add up to one to make a
+        // sensible probability mass function for then resample step.
         for (size_t i = 0; i < particles.size(); ++i)
         {
             weights[i] = 1.0 / particles.size();
@@ -232,9 +233,6 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
 }
 
 void ParticleFilter::resample() {
-	// TODO: Resample particles with replacement with probability proportional to their weight. 
-	// NOTE: You may find std::discrete_distribution helpful here.
-	//   http://en.cppreference.com/w/cpp/numeric/random/discrete_distribution
     std::discrete_distribution<size_t> particle_dist(begin(weights), end(weights));
     std::default_random_engine gen;
     std::vector<Particle> new_particles;
@@ -255,7 +253,7 @@ void ParticleFilter::SetAssociations(Particle& particle,
     // sense_x: the associations x mapping already converted to world coordinates
     // sense_y: the associations y mapping already converted to world coordinates
 
-    particle.associations= associations;
+    particle.associations = associations;
     particle.sense_x = sense_x;
     particle.sense_y = sense_y;
 }
